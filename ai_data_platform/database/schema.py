@@ -71,9 +71,9 @@ class SchemaManager:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             
             -- Constraints
-            CHECK (platform IN ('Meta', 'Google')),
-            CHECK (device IN ('Desktop', 'Mobile')),
-            CHECK (country IN ('US', 'CA', 'BR', 'MX')),
+            CHECK (platform IN ('Meta', 'Google', 'ALL')),
+            CHECK (device IN ('Desktop', 'Mobile', 'ALL')),
+            CHECK (country IN ('US', 'CA', 'BR', 'MX', 'ALL')),
             
             -- Primary key to prevent duplicates
             PRIMARY KEY (date, platform, account, campaign, country, device)
