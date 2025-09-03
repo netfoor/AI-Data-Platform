@@ -27,6 +27,19 @@ class APISettings(BaseSettings):
     class Config:
         env_prefix = "API_"
 
+class N8nSettings(BaseSettings):
+    """n8n workflow automation settings"""
+    base_url: str = Field(default="http://localhost:5678", description="n8n local Docker instance URL")
+    api_key: Optional[str] = Field(default=None, description="n8n API key for authentication")
+    webhook_secret: Optional[str] = Field(default="ai-platform-secret-2024", description="Webhook secret for secure communication")
+    workflow_id: Optional[str] = Field(default=None, description="ID of the data ingestion workflow")
+    enable_automation: bool = Field(default=True, description="Enable n8n workflow automation")
+    retry_attempts: int = Field(default=3, description="Number of retry attempts for failed workflows")
+    retry_delay_seconds: int = Field(default=60, description="Delay between retry attempts in seconds")
+    
+    class Config:
+        env_prefix = "N8N_"
+
 class DataSettings(BaseSettings):
     """Data processing configuration settings"""
     input_directory: str = Field(default="data", description="Directory for input data files")
@@ -62,6 +75,7 @@ class Settings(BaseSettings):
     # Component settings
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     api: APISettings = Field(default_factory=APISettings)
+    n8n: N8nSettings = Field(default_factory=N8nSettings)
     data: DataSettings = Field(default_factory=DataSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     

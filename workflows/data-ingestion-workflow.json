@@ -1,0 +1,259 @@
+{
+  "name": "AI Data Platform - Data Ingestion",
+  "nodes": [
+    {
+      "parameters": {
+        "mode": "manual"
+      },
+      "id": "start-trigger",
+      "name": "Start Data Ingestion",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "start-webhook"
+    },
+    {
+      "parameters": {
+        "filePath": "ads_spend.csv",
+        "options": {
+          "delimiter": ",",
+          "headerRow": true,
+          "maxRowCount": 0
+        }
+      },
+      "id": "csv-reader",
+      "name": "Read CSV File",
+      "type": "n8n-nodes-base.csv",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Add metadata to each record\nconst records = $input.all();\nconst batchId = $('Start Data Ingestion').first().json.batch_id || Date.now().toString();\n\nconst transformedRecords = records.map(record => ({\n  ...record.json,\n  load_date: new Date().toISOString(),\n  source_file_name: 'ads_spend.csv',\n  batch_id: batchId,\n  processed_at: new Date().toISOString()\n}));\n\nreturn transformedRecords.map(record => ({ json: record }));"
+      },
+      "id": "data-transformer",
+      "name": "Transform Data & Add Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "url": "http://localhost:8000/ingest",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Webhook-Secret",
+              "value": "ai-platform-secret-2024"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "csv_file_path",
+              "value": "ads_spend.csv"
+            },
+            {
+              "name": "batch_id",
+              "value": "={{ $('Start Data Ingestion').first().json.batch_id || Date.now().toString() }}"
+            },
+            {
+              "name": "record_count",
+              "value": "={{ $('Transform Data & Add Metadata').all().length }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "trigger-etl",
+      "name": "Trigger ETL Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "success-check",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 200,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "success-check",
+      "name": "Check Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "message": "Data Ingestion Completed Successfully! Summary: Batch ID: {{ $('Start Data Ingestion').first().json.batch_id }}, Records Processed: {{ $('Transform Data & Add Metadata').all().length }}, Processing Time: {{ $now.diff($('Start Data Ingestion').first().json.timestamp, 'seconds') }} seconds, Status: Success. Next Steps: Data is now available in DuckDB, KPI calculations can be performed, Reports can be generated",
+        "options": {}
+      },
+      "id": "success-notification",
+      "name": "Success Notification",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "message": "Data Ingestion Failed! Error Details: Batch ID: {{ $('Start Data Ingestion').first().json.batch_id }}, Error: {{ $json.error || 'Unknown error occurred' }}, Status Code: {{ $json.statusCode }}, Timestamp: {{ $now.toISOString() }}. Troubleshooting: Check if ETL pipeline is running, Verify database connection, Review logs for details",
+        "options": {}
+      },
+      "id": "error-notification",
+      "name": "Error Notification",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "cronExpression": "0 9 * * *",
+        "options": {}
+      },
+      "id": "daily-scheduler",
+      "name": "Daily Scheduler (9 AM)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [60, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate unique batch ID for this execution\nconst batchId = `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;\nconst timestamp = new Date().toISOString();\n\nreturn {\n  json: {\n    batch_id: batchId,\n    timestamp: timestamp,\n    execution_type: 'scheduled',\n    scheduled_time: '09:00 UTC'\n  }\n};"
+      },
+      "id": "batch-generator",
+      "name": "Generate Batch ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 500]
+    }
+  ],
+  "connections": {
+    "Start Data Ingestion": {
+      "main": [
+        [
+          {
+            "node": "Read CSV File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read CSV File": {
+      "main": [
+        [
+          {
+            "node": "Transform Data & Add Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Data & Add Metadata": {
+      "main": [
+        [
+          {
+            "node": "Trigger ETL Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger ETL Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Check Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Success": {
+      "main": [
+        [
+          {
+            "node": "Success Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Scheduler (9 AM)": {
+      "main": [
+        [
+          {
+            "node": "Generate Batch ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Batch ID": {
+      "main": [
+        [
+          {
+            "node": "Read CSV File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "ai-data-platform",
+      "name": "AI Data Platform"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1.0.0"
+}

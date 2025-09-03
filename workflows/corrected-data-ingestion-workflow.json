@@ -1,0 +1,123 @@
+{
+  "name": "AI Data Platform - Data Ingestion",
+  "nodes": [
+    {
+      "parameters": {
+        "mode": "manual"
+      },
+      "id": "start-trigger",
+      "name": "Start Data Ingestion",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "filePath": "ads_spend.csv",
+        "options": {
+          "delimiter": ",",
+          "headerRow": true,
+          "maxRowCount": 0
+        }
+      },
+      "id": "csv-reader",
+      "name": "Read CSV File",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse CSV content and add metadata\nconst csvContent = $input.first().binary.data;\nconst lines = csvContent.split('\\n');\nconst headers = lines[0].split(',');\nconst records = [];\n\nfor (let i = 1; i < lines.length; i++) {\n  if (lines[i].trim()) {\n    const values = lines[i].split(',');\n    const record = {};\n    headers.forEach((header, index) => {\n      record[header.trim()] = values[index] ? values[index].trim() : '';\n    });\n    \n    // Add metadata\n    record.load_date = new Date().toISOString();\n    record.source_file_name = 'ads_spend.csv';\n    record.batch_id = Date.now().toString();\n    record.processed_at = new Date().toISOString();\n    \n    records.push(record);\n  }\n}\n\nreturn records.map(record => ({ json: record }));"
+      },
+      "id": "data-transformer",
+      "name": "Transform Data & Add Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "url": "http://localhost:8000/api/ingest",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Webhook-Secret",
+              "value": "ai-platform-secret-2024"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "csv_file_path",
+              "value": "ads_spend.csv"
+            },
+            {
+              "name": "batch_id",
+              "value": "={{ Date.now() }}"
+            },
+            {
+              "name": "record_count",
+              "value": "={{ $('Transform Data & Add Metadata').all().length }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "trigger-etl",
+      "name": "Trigger ETL Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Start Data Ingestion": {
+      "main": [
+        [
+          {
+            "node": "Read CSV File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read CSV File": {
+      "main": [
+        [
+          {
+            "node": "Transform Data & Add Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform Data & Add Metadata": {
+      "main": [
+        [
+          {
+            "node": "Trigger ETL Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
+

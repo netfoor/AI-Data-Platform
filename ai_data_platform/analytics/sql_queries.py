@@ -1,349 +1,549 @@
 """
-SQL query templates for KPI computation and analysis
+Parameterized SQL Query Interface for AI Data Platform
+Provides predefined SQL templates and execution utilities for common analytics queries
 """
-from typing import Dict, Optional, List
-from datetime import date
+import logging
+from datetime import date, datetime
+from typing import Dict, List, Optional, Any, Union
+from dataclasses import dataclass
 
+from ..database.connection import DatabaseConnection
 
-class KPIQueries:
-    """Collection of SQL queries for KPI computation and analysis"""
+logger = logging.getLogger(__name__)
+
+@dataclass
+class QueryResult:
+    """Result of a SQL query execution"""
+    data: List[Dict[str, Any]]
+    row_count: int
+    execution_time: float
+    query: str
+    parameters: Dict[str, Any]
+    success: bool = True
+    error_message: Optional[str] = None
+
+class SQLQueryInterface:
+    """Interface for executing parameterized SQL queries with predefined templates"""
     
-    @staticmethod
-    def compute_daily_kpis(start_date: Optional[date] = None, 
-                          end_date: Optional[date] = None) -> Dict[str, str]:
-        """Generate SQL query for daily KPI computation
+    def __init__(self, db_connection: Optional[DatabaseConnection] = None):
+        """Initialize SQL query interface
         
         Args:
-            start_date: Start date filter
-            end_date: End date filter
-            
-        Returns:
-            Dictionary with query and parameters
+            db_connection: Database connection instance. If None, uses global instance.
         """
-        query = """
-        SELECT 
-            date,
-            platform,
-            account,
-            campaign,
-            country,
-            device,
-            SUM(spend) as total_spend,
-            SUM(conversions) as total_conversions,
-            SUM(clicks) as total_clicks,
-            SUM(impressions) as total_impressions,
-            SUM(conversions) * 100 as revenue,
-            CASE 
-                WHEN SUM(conversions) > 0 THEN ROUND(SUM(spend) / SUM(conversions), 4)
-                ELSE NULL 
-            END as cac,
-            CASE 
-                WHEN SUM(spend) > 0 THEN ROUND((SUM(conversions) * 100) / SUM(spend), 4)
-                ELSE NULL 
-            END as roas,
-            CURRENT_TIMESTAMP as created_at
-        FROM raw_ads_spend
-        WHERE 1=1
-        """
-        
-        params = {}
-        if start_date:
-            query += " AND date >= $start_date"
-            params['start_date'] = start_date
-        
-        if end_date:
-            query += " AND date <= $end_date"
-            params['end_date'] = end_date
-        
-        query += """
-        GROUP BY date, platform, account, campaign, country, device
-        ORDER BY date DESC, platform, account, campaign
-        """
-        
-        return {'query': query, 'params': params}
+        self.db = db_connection or DatabaseConnection()
+        self._query_templates = self._initialize_query_templates()
     
-    @staticmethod
-    def compute_platform_kpis(start_date: Optional[date] = None,
-                             end_date: Optional[date] = None) -> Dict[str, str]:
-        """Generate SQL query for platform-level KPI computation
+    def _initialize_query_templates(self) -> Dict[str, str]:
+        """Initialize predefined SQL query templates"""
+        return {
+            # Basic metrics queries
+            "daily_metrics": """
+                SELECT 
+                    date,
+                    SUM(spend) as total_spend,
+                    SUM(conversions) as total_conversions,
+                    SUM(clicks) as total_clicks,
+                    SUM(impressions) as total_impressions,
+                    CASE 
+                        WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)
+                        ELSE NULL 
+                    END as cac,
+                    CASE 
+                        WHEN SUM(spend) > 0 THEN (SUM(conversions) * 100.0) / SUM(spend)
+                        ELSE NULL 
+                    END as roas
+                FROM raw_ads_spend 
+                WHERE date BETWEEN ? AND ?
+                GROUP BY date
+                ORDER BY date DESC
+            """,
+            
+            "platform_performance": """
+                SELECT 
+                    platform,
+                    SUM(spend) as total_spend,
+                    SUM(conversions) as total_conversions,
+                    SUM(conversions) * 100 as total_revenue,
+                    CASE 
+                        WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)
+                        ELSE NULL 
+                    END as cac,
+                    CASE 
+                        WHEN SUM(spend) > 0 THEN (SUM(conversions) * 100.0) / SUM(spend)
+                        ELSE NULL 
+                    END as roas,
+                    COUNT(DISTINCT date) as days_with_data,
+                    AVG(spend) as avg_daily_spend,
+                    AVG(conversions) as avg_daily_conversions
+                FROM raw_ads_spend 
+                WHERE date BETWEEN ? AND ?
+                GROUP BY platform
+                ORDER BY total_spend DESC
+            """,
+            
+            "campaign_analysis": """
+                SELECT 
+                    campaign,
+                    platform,
+                    SUM(spend) as total_spend,
+                    SUM(conversions) as total_conversions,
+                    SUM(conversions) * 100 as total_revenue,
+                    CASE 
+                        WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)
+                        ELSE NULL 
+                    END as cac,
+                    CASE 
+                        WHEN SUM(spend) > 0 THEN (SUM(conversions) * 100.0) / SUM(spend)
+                        ELSE NULL 
+                    END as roas,
+                    COUNT(DISTINCT date) as days_with_data
+                FROM raw_ads_spend 
+                WHERE date BETWEEN ? AND ?
+                GROUP BY campaign, platform
+                ORDER BY total_spend DESC
+            """,
+            
+            "country_performance": """
+                SELECT 
+                    country,
+                    SUM(spend) as total_spend,
+                    SUM(conversions) as total_conversions,
+                    SUM(conversions) * 100 as total_revenue,
+                    CASE 
+                        WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)
+                        ELSE NULL 
+                    END as cac,
+                    CASE 
+                        WHEN SUM(spend) > 0 THEN (SUM(conversions) * 100.0) / SUM(spend)
+                        ELSE NULL 
+                    END as roas,
+                    COUNT(DISTINCT date) as days_with_data
+                FROM raw_ads_spend 
+                WHERE date BETWEEN ? AND ?
+                GROUP BY country
+                ORDER BY total_spend DESC
+            """,
+            
+            "device_performance": """
+                SELECT 
+                    device,
+                    SUM(spend) as total_spend,
+                    SUM(conversions) as total_conversions,
+                    SUM(conversions) * 100 as total_revenue,
+                    CASE 
+                        WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)
+                        ELSE NULL 
+                    END as cac,
+                    CASE 
+                        WHEN SUM(spend) > 0 THEN (SUM(conversions) * 100.0) / SUM(spend)
+                        ELSE NULL 
+                    END as roas,
+                    COUNT(DISTINCT date) as days_with_data
+                FROM raw_ads_spend 
+                WHERE date BETWEEN ? AND ?
+                GROUP BY device
+                ORDER BY total_spend DESC
+            """,
+            
+            "account_summary": """
+                SELECT 
+                    account,
+                    SUM(spend) as total_spend,
+                    SUM(conversions) as total_conversions,
+                    SUM(conversions) * 100 as total_revenue,
+                    CASE 
+                        WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)
+                        ELSE NULL 
+                    END as cac,
+                    CASE 
+                        WHEN SUM(spend) > 0 THEN (SUM(conversions) * 100.0) / SUM(spend)
+                        ELSE NULL 
+                    END as roas,
+                    COUNT(DISTINCT date) as days_with_data,
+                    COUNT(DISTINCT campaign) as campaign_count,
+                    COUNT(DISTINCT platform) as platform_count
+                FROM raw_ads_spend 
+                WHERE date BETWEEN ? AND ?
+                GROUP BY account
+                ORDER BY total_spend DESC
+            """,
+            
+            "period_comparison": """
+                WITH current_period AS (
+                    SELECT 
+                        SUM(spend) as current_spend,
+                        SUM(conversions) as current_conversions,
+                        CASE 
+                            WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)
+                            ELSE NULL 
+                        END as current_cac,
+                        CASE 
+                            WHEN SUM(spend) > 0 THEN (SUM(conversions) * 100.0) / SUM(spend)
+                            ELSE NULL 
+                        END as current_roas
+                    FROM raw_ads_spend 
+                    WHERE date BETWEEN ? AND ?
+                ),
+                previous_period AS (
+                    SELECT 
+                        SUM(spend) as previous_spend,
+                        SUM(conversions) as previous_conversions,
+                        CASE 
+                            WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)
+                            ELSE NULL 
+                        END as previous_cac,
+                        CASE 
+                            WHEN SUM(spend) > 0 THEN (SUM(conversions) * 100.0) / SUM(spend)
+                            ELSE NULL 
+                        END as previous_roas
+                    FROM raw_ads_spend 
+                    WHERE date BETWEEN ? AND ?
+                )
+                SELECT 
+                    c.current_spend,
+                    c.current_conversions,
+                    c.current_cac,
+                    c.current_roas,
+                    p.previous_spend,
+                    p.previous_conversions,
+                    p.previous_cac,
+                    p.previous_roas,
+                    CASE 
+                        WHEN p.previous_spend > 0 THEN ((c.current_spend - p.previous_spend) / p.previous_spend) * 100
+                        ELSE NULL 
+                    END as spend_change_percent,
+                    CASE 
+                        WHEN p.previous_conversions > 0 THEN ((c.current_conversions - p.previous_conversions) / p.previous_conversions) * 100
+                        ELSE NULL 
+                    END as conversions_change_percent,
+                    CASE 
+                        WHEN p.previous_cac IS NOT NULL AND c.current_cac IS NOT NULL THEN ((c.current_cac - p.previous_cac) / p.previous_cac) * 100
+                        ELSE NULL 
+                    END as cac_change_percent,
+                    CASE 
+                        WHEN p.previous_roas IS NOT NULL AND c.current_roas IS NOT NULL THEN ((c.current_roas - p.previous_roas) / p.previous_roas) * 100
+                        ELSE NULL 
+                    END as roas_change_percent
+                FROM current_period c
+                CROSS JOIN previous_period p
+            """,
+            
+            "trend_analysis": """
+                SELECT 
+                    date,
+                    SUM(spend) as daily_spend,
+                    SUM(conversions) as daily_conversions,
+                    SUM(conversions) * 100 as daily_revenue,
+                    CASE 
+                        WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)
+                        ELSE NULL 
+                    END as daily_cac,
+                    CASE 
+                        WHEN SUM(spend) > 0 THEN (SUM(conversions) * 100.0) / SUM(spend)
+                        ELSE NULL 
+                    END as daily_roas,
+                    AVG(SUM(spend)) OVER (ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as rolling_7d_spend,
+                    AVG(SUM(conversions)) OVER (ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as rolling_7d_conversions
+                FROM raw_ads_spend 
+                WHERE date BETWEEN ? AND ?
+                GROUP BY date
+                ORDER BY date DESC
+            """
+        }
+    
+    def get_available_queries(self) -> List[str]:
+        """Get list of available predefined query names"""
+        return list(self._query_templates.keys())
+    
+    def get_query_template(self, query_name: str) -> Optional[str]:
+        """Get a specific query template by name"""
+        return self._query_templates.get(query_name)
+    
+    def execute_predefined_query(self, query_name: str, parameters: Dict[str, Any]) -> QueryResult:
+        """Execute a predefined query with parameters
         
         Args:
-            start_date: Start date filter
-            end_date: End date filter
+            query_name: Name of the predefined query to execute
+            parameters: Dictionary of parameters for the query
             
         Returns:
-            Dictionary with query and parameters
+            QueryResult with execution results
         """
-        query = """
-        SELECT 
-            date,
-            platform,
-            'ALL' as account,
-            'ALL' as campaign,
-            'ALL' as country,
-            'ALL' as device,
-            SUM(spend) as total_spend,
-            SUM(conversions) as total_conversions,
-            SUM(clicks) as total_clicks,
-            SUM(impressions) as total_impressions,
-            SUM(conversions) * 100 as revenue,
-            CASE 
-                WHEN SUM(conversions) > 0 THEN ROUND(SUM(spend) / SUM(conversions), 4)
-                ELSE NULL 
-            END as cac,
-            CASE 
-                WHEN SUM(spend) > 0 THEN ROUND((SUM(conversions) * 100) / SUM(spend), 4)
-                ELSE NULL 
-            END as roas,
-            CURRENT_TIMESTAMP as created_at
-        FROM raw_ads_spend
-        WHERE 1=1
-        """
+        if query_name not in self._query_templates:
+            return QueryResult(
+                data=[],
+                row_count=0,
+                execution_time=0.0,
+                query="",
+                parameters=parameters,
+                success=False,
+                error_message=f"Unknown query: {query_name}"
+            )
         
-        params = {}
-        if start_date:
-            query += " AND date >= $start_date"
-            params['start_date'] = start_date
-        
-        if end_date:
-            query += " AND date <= $end_date"
-            params['end_date'] = end_date
-        
-        query += """
-        GROUP BY date, platform
-        ORDER BY date DESC, platform
-        """
-        
-        return {'query': query, 'params': params}
+        query_template = self._query_templates[query_name]
+        return self.execute_custom_query(query_template, parameters)
     
-    @staticmethod
-    def upsert_kpi_metrics() -> str:
-        """Generate SQL query for upserting KPI metrics
-        
-        Returns:
-            SQL upsert query string
-        """
-        return """
-        INSERT OR REPLACE INTO kpi_metrics (
-            date, platform, account, campaign, country, device,
-            total_spend, total_conversions, cac, roas, revenue, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-    
-    @staticmethod
-    def get_kpi_metrics_by_period(start_date: Optional[date] = None,
-                                 end_date: Optional[date] = None,
-                                 platform: Optional[str] = None) -> Dict[str, str]:
-        """Generate SQL query for retrieving KPI metrics by period
+    def execute_custom_query(self, query: str, parameters: Dict[str, Any]) -> QueryResult:
+        """Execute a custom SQL query with parameters
         
         Args:
-            start_date: Start date filter
-            end_date: End date filter
-            platform: Platform filter
+            query: SQL query string
+            parameters: Dictionary of parameters for the query
             
         Returns:
-            Dictionary with query and parameters
+            QueryResult with execution results
         """
-        query = """
-        SELECT 
-            date,
-            platform,
-            account,
-            campaign,
-            country,
-            device,
-            total_spend,
-            total_conversions,
-            cac,
-            roas,
-            revenue,
-            created_at
-        FROM kpi_metrics
-        WHERE 1=1
-        """
+        import time
+        start_time = time.time()
         
-        params = {}
-        if start_date:
-            query += " AND date >= $start_date"
-            params['start_date'] = start_date
-        
-        if end_date:
-            query += " AND date <= $end_date"
-            params['end_date'] = end_date
-        
-        if platform:
-            query += " AND platform = $platform"
-            params['platform'] = platform
-        
-        query += " ORDER BY date DESC, platform, account, campaign"
-        
-        return {'query': query, 'params': params}
+        try:
+            # Convert parameters to positional format for DuckDB
+            param_list = self._convert_parameters_to_positional(query, parameters)
+            
+            # Execute the query
+            result = self.db.execute_query(query, param_list)
+            rows = result.fetchall()
+            
+            # Convert to list of dictionaries
+            if result.description:
+                column_names = [desc[0] for desc in result.description]
+                data = [dict(zip(column_names, row)) for row in rows]
+            else:
+                data = []
+            
+            execution_time = time.time() - start_time
+            
+            return QueryResult(
+                data=data,
+                row_count=len(data),
+                execution_time=execution_time,
+                query=query,
+                parameters=parameters,
+                success=True
+            )
+            
+        except Exception as e:
+            execution_time = time.time() - start_time
+            logger.error(f"Query execution failed: {e}")
+            
+            return QueryResult(
+                data=[],
+                row_count=0,
+                execution_time=execution_time,
+                query=query,
+                parameters=parameters,
+                success=False,
+                error_message=str(e)
+            )
     
-    @staticmethod
-    def aggregate_kpis_by_dimensions(dimensions: List[str],
-                                   start_date: Optional[date] = None,
-                                   end_date: Optional[date] = None) -> Dict[str, str]:
-        """Generate SQL query for aggregating KPIs by custom dimensions
+    def _convert_parameters_to_positional(self, query: str, parameters: Dict[str, Any]) -> List[Any]:
+        """Convert named parameters to positional parameters for DuckDB
         
         Args:
-            dimensions: List of dimensions to group by
-            start_date: Start date filter
-            end_date: End date filter
+            query: SQL query string
+            parameters: Dictionary of named parameters
             
         Returns:
-            Dictionary with query and parameters
+            List of positional parameters in order of appearance in query
         """
-        valid_dimensions = {'date', 'platform', 'account', 'campaign', 'country', 'device'}
-        dimensions = [dim for dim in dimensions if dim in valid_dimensions]
+        # For now, we'll use a simple approach with positional parameters
+        # In a more sophisticated implementation, we could parse the query
+        # and map named parameters to positions
         
-        if not dimensions:
-            dimensions = ['date', 'platform']
+        # Extract date parameters for common queries
+        param_list = []
         
-        dimension_columns = ', '.join(dimensions)
-        group_by_clause = ', '.join(dimensions)
+        if 'start_date' in parameters:
+            param_list.append(parameters['start_date'])
+        if 'end_date' in parameters:
+            param_list.append(parameters['end_date'])
+        if 'previous_start_date' in parameters:
+            param_list.append(parameters['previous_start_date'])
+        if 'previous_end_date' in parameters:
+            param_list.append(parameters['previous_end_date'])
         
-        query = f"""
-        SELECT 
-            {dimension_columns},
-            SUM(total_spend) as total_spend,
-            SUM(total_conversions) as total_conversions,
-            SUM(revenue) as revenue,
-            CASE 
-                WHEN SUM(total_conversions) > 0 THEN ROUND(SUM(total_spend) / SUM(total_conversions), 4)
-                ELSE NULL 
-            END as cac,
-            CASE 
-                WHEN SUM(total_spend) > 0 THEN ROUND(SUM(revenue) / SUM(total_spend), 4)
-                ELSE NULL 
-            END as roas
-        FROM kpi_metrics
-        WHERE 1=1
-        """
-        
-        params = {}
-        if start_date:
-            query += " AND date >= $start_date"
-            params['start_date'] = start_date
-        
-        if end_date:
-            query += " AND date <= $end_date"
-            params['end_date'] = end_date
-        
-        query += f" GROUP BY {group_by_clause} ORDER BY {group_by_clause}"
-        
-        return {'query': query, 'params': params}
+        return param_list
     
-    @staticmethod
-    def validate_kpi_calculations() -> str:
-        """Generate SQL query for validating KPI calculations against raw data
-        
-        Returns:
-            SQL validation query string
-        """
-        return """
-        WITH raw_aggregated AS (
-            SELECT 
-                date, platform, account, campaign, country, device,
-                SUM(spend) as raw_spend,
-                SUM(conversions) as raw_conversions,
-                SUM(conversions) * 100 as raw_revenue,
-                CASE 
-                    WHEN SUM(conversions) > 0 THEN ROUND(SUM(spend) / SUM(conversions), 4)
-                    ELSE NULL 
-                END as raw_cac,
-                CASE 
-                    WHEN SUM(spend) > 0 THEN ROUND((SUM(conversions) * 100) / SUM(spend), 4)
-                    ELSE NULL 
-                END as raw_roas
-            FROM raw_ads_spend
-            GROUP BY date, platform, account, campaign, country, device
-        ),
-        kpi_stored AS (
-            SELECT 
-                date, platform, account, campaign, country, device,
-                total_spend as kpi_spend,
-                total_conversions as kpi_conversions,
-                revenue as kpi_revenue,
-                cac as kpi_cac,
-                roas as kpi_roas
-            FROM kpi_metrics
-        )
-        SELECT 
-            r.date, r.platform, r.account, r.campaign, r.country, r.device,
-            r.raw_spend, k.kpi_spend,
-            r.raw_conversions, k.kpi_conversions,
-            r.raw_revenue, k.kpi_revenue,
-            r.raw_cac, k.kpi_cac,
-            r.raw_roas, k.kpi_roas,
-            ABS(r.raw_spend - COALESCE(k.kpi_spend, 0)) as spend_diff,
-            ABS(r.raw_conversions - COALESCE(k.kpi_conversions, 0)) as conversions_diff,
-            ABS(COALESCE(r.raw_cac, 0) - COALESCE(k.kpi_cac, 0)) as cac_diff,
-            ABS(COALESCE(r.raw_roas, 0) - COALESCE(k.kpi_roas, 0)) as roas_diff
-        FROM raw_aggregated r
-        LEFT JOIN kpi_stored k ON (
-            r.date = k.date AND 
-            r.platform = k.platform AND 
-            r.account = k.account AND 
-            r.campaign = k.campaign AND 
-            r.country = k.country AND 
-            r.device = k.device
-        )
-        WHERE (
-            ABS(r.raw_spend - COALESCE(k.kpi_spend, 0)) > 0.01 OR
-            ABS(r.raw_conversions - COALESCE(k.kpi_conversions, 0)) > 0 OR
-            ABS(COALESCE(r.raw_cac, 0) - COALESCE(k.kpi_cac, 0)) > 0.0001 OR
-            ABS(COALESCE(r.raw_roas, 0) - COALESCE(k.kpi_roas, 0)) > 0.0001
-        )
-        ORDER BY r.date DESC, r.platform, r.account
-        """
-    
-    @staticmethod
-    def get_kpi_summary_stats() -> str:
-        """Generate SQL query for KPI summary statistics
-        
-        Returns:
-            SQL summary statistics query string
-        """
-        return """
-        SELECT 
-            COUNT(*) as total_records,
-            COUNT(DISTINCT date) as unique_dates,
-            COUNT(DISTINCT platform) as unique_platforms,
-            COUNT(DISTINCT account) as unique_accounts,
-            COUNT(DISTINCT campaign) as unique_campaigns,
-            MIN(date) as earliest_date,
-            MAX(date) as latest_date,
-            SUM(total_spend) as total_spend,
-            SUM(total_conversions) as total_conversions,
-            SUM(revenue) as total_revenue,
-            AVG(cac) as avg_cac,
-            AVG(roas) as avg_roas,
-            COUNT(CASE WHEN cac IS NULL THEN 1 END) as null_cac_count,
-            COUNT(CASE WHEN roas IS NULL THEN 1 END) as null_roas_count,
-            MIN(created_at) as first_computation,
-            MAX(created_at) as last_computation
-        FROM kpi_metrics
-        """
-    
-    @staticmethod
-    def delete_kpi_metrics_by_date(start_date: date, end_date: date) -> Dict[str, str]:
-        """Generate SQL query for deleting KPI metrics by date range
+    def format_query_result(self, result: QueryResult, format_type: str = "table") -> str:
+        """Format query results for display
         
         Args:
-            start_date: Start date for deletion
-            end_date: End date for deletion
+            result: QueryResult to format
+            format_type: Type of formatting ("table", "json", "summary")
             
         Returns:
-            Dictionary with query and parameters
+            Formatted string representation
         """
-        query = """
-        DELETE FROM kpi_metrics 
-        WHERE date >= $start_date AND date <= $end_date
-        """
+        if not result.success:
+            return f"❌ Query failed: {result.error_message}"
         
-        params = {
-            'start_date': start_date,
-            'end_date': end_date
+        if result.row_count == 0:
+            return "📊 No data returned from query"
+        
+        if format_type == "json":
+            import json
+            return json.dumps(result.data, indent=2, default=str)
+        
+        elif format_type == "summary":
+            return self._format_summary(result)
+        
+        else:  # table format
+            return self._format_table(result)
+    
+    def _format_summary(self, result: QueryResult) -> str:
+        """Format results as a summary"""
+        if result.row_count == 0:
+            return "No data available"
+        
+        summary_parts = [f"📊 Query Results Summary:"]
+        summary_parts.append(f"   • Rows returned: {result.row_count}")
+        summary_parts.append(f"   • Execution time: {result.execution_time:.3f}s")
+        
+        # Add sample data if available
+        if result.data:
+            sample = result.data[0]
+            summary_parts.append(f"   • Sample row keys: {', '.join(sample.keys())}")
+        
+        return "\n".join(summary_parts)
+    
+    def _format_table(self, result: QueryResult) -> str:
+        """Format results as a table"""
+        if result.row_count == 0:
+            return "No data available"
+        
+        if not result.data:
+            return "No data available"
+        
+        # Get column names from first row
+        columns = list(result.data[0].keys())
+        
+        # Calculate column widths
+        col_widths = {}
+        for col in columns:
+            col_widths[col] = max(
+                len(str(col)),
+                max(len(str(row.get(col, ''))) for row in result.data[:10])  # Limit to first 10 rows for width calculation
+            )
+        
+        # Build table header
+        table_lines = []
+        
+        # Header separator
+        header_sep = "+" + "+".join("-" * (width + 2) for width in col_widths.values()) + "+"
+        table_lines.append(header_sep)
+        
+        # Header row
+        header_row = "|" + "|".join(f" {col:^{col_widths[col]}} " for col in columns) + "|"
+        table_lines.append(header_row)
+        table_lines.append(header_sep)
+        
+        # Data rows (limit to first 20 for display)
+        for i, row in enumerate(result.data[:20]):
+            data_row = "|" + "|".join(
+                f" {str(row.get(col, '')):^{col_widths[col]}} " for col in columns
+            ) + "|"
+            table_lines.append(data_row)
+        
+        # Footer separator
+        table_lines.append(header_sep)
+        
+        # Add row count info
+        if result.row_count > 20:
+            table_lines.append(f"Showing first 20 of {result.row_count} rows")
+        
+        return "\n".join(table_lines)
+    
+    def get_query_help(self, query_name: Optional[str] = None) -> str:
+        """Get help information for queries
+        
+        Args:
+            query_name: Specific query name, or None for all queries
+            
+        Returns:
+            Help text string
+        """
+        if query_name:
+            if query_name not in self._query_templates:
+                return f"❌ Unknown query: {query_name}"
+            
+            return self._get_single_query_help(query_name)
+        
+        # Return help for all queries
+        help_text = ["🔍 Available Predefined Queries:"]
+        help_text.append("=" * 50)
+        
+        for name in self._query_templates.keys():
+            help_text.append(f"• {name}")
+        
+        help_text.append("\n💡 Usage:")
+        help_text.append("  result = interface.execute_predefined_query('query_name', parameters)")
+        help_text.append("\n📖 For detailed help on a specific query:")
+        help_text.append("  help_text = interface.get_query_help('query_name')")
+        
+        return "\n".join(help_text)
+    
+    def _get_single_query_help(self, query_name: str) -> str:
+        """Get help for a specific query"""
+        help_info = {
+            "daily_metrics": {
+                "description": "Get daily performance metrics including CAC and ROAS",
+                "parameters": ["start_date", "end_date"],
+                "returns": "Daily spend, conversions, CAC, ROAS, clicks, impressions"
+            },
+            "platform_performance": {
+                "description": "Compare performance across different advertising platforms",
+                "parameters": ["start_date", "end_date"],
+                "returns": "Platform-level metrics with CAC, ROAS, and averages"
+            },
+            "campaign_analysis": {
+                "description": "Analyze performance by campaign and platform",
+                "parameters": ["start_date", "end_date"],
+                "returns": "Campaign metrics broken down by platform"
+            },
+            "country_performance": {
+                "description": "Geographic performance analysis by country",
+                "parameters": ["start_date", "end_date"],
+                "returns": "Country-level metrics with CAC and ROAS"
+            },
+            "device_performance": {
+                "description": "Performance analysis by device type",
+                "parameters": ["start_date", "end_date"],
+                "returns": "Device-level metrics with CAC and ROAS"
+            },
+            "account_summary": {
+                "description": "Account-level performance summary",
+                "parameters": ["start_date", "end_date"],
+                "returns": "Account metrics with campaign and platform counts"
+            },
+            "period_comparison": {
+                "description": "Compare two time periods side by side",
+                "parameters": ["start_date", "end_date", "previous_start_date", "previous_end_date"],
+                "returns": "Period comparison with percentage changes"
+            },
+            "trend_analysis": {
+                "description": "Time series analysis with rolling averages",
+                "parameters": ["start_date", "end_date"],
+                "returns": "Daily trends with 7-day rolling averages"
+            }
         }
         
-        return {'query': query, 'params': params}
+        if query_name not in help_info:
+            return f"❌ No help available for: {query_name}"
+        
+        info = help_info[query_name]
+        help_text = [
+            f"🔍 Query: {query_name}",
+            f"📝 Description: {info['description']}",
+            f"📊 Parameters: {', '.join(info['parameters'])}",
+            f"📈 Returns: {info['returns']}",
+            "",
+            "💡 Example:",
+            f"  parameters = {{'start_date': '2025-06-01', 'end_date': '2025-06-30'}}",
+            f"  result = interface.execute_predefined_query('{query_name}', parameters)"
+        ]
+        
+        return "\n".join(help_text)
+
+# Global instance
+sql_interface = SQLQueryInterface()

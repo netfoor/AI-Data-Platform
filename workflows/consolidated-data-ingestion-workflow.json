@@ -1,0 +1,128 @@
+{
+  "name": "AI Data Platform - Consolidated Data Ingestion",
+  "nodes": [
+    {
+      "parameters": {
+        "mode": "manual"
+      },
+      "id": "start-trigger",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "filePath": "ads_spend.csv",
+        "options": {
+          "delimiter": ",",
+          "headerRow": true,
+          "maxRowCount": 0
+        }
+      },
+      "id": "csv-reader",
+      "name": "Read CSV File",
+      "type": "n8n-nodes-base.csv",
+      "typeVersion": 1,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Add metadata to each record\\nconst records = $input.all();\\nconst batchId = `batch_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;\\nreturn records.map(r => ({ json: { ...r.json, load_date: new Date().toISOString(), source_file_name: 'ads_spend.csv', batch_id: batchId, processed_at: new Date().toISOString() } }));"
+      },
+      "id": "data-transformer",
+      "name": "Transform & Add Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "url": "http://localhost:8000/ingest",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "csv_file_path", "value": "ads_spend.csv" },
+            { "name": "batch_id", "value": "={{ $('Transform & Add Metadata').first().json.batch_id }}" },
+            { "name": "record_count", "value": "={{ $('Transform & Add Metadata').all().length }}" }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "trigger-etl",
+      "name": "Trigger ETL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "id": "ok", "leftValue": "={{ $json.statusCode }}", "rightValue": 200, "operator": { "type": "number", "operation": "gte" } }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-success",
+      "name": "Check Response",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1080, 300]
+    },
+    {
+      "parameters": {
+        "message": "Ingestion succeeded: {{ $json.body.summary.records.inserted }} inserted, {{ $json.body.summary.records.failed_insertion }} failed, duration {{ $json.body.summary.duration_seconds }}s"
+      },
+      "id": "success-msg",
+      "name": "Success",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1300, 220]
+    },
+    {
+      "parameters": {
+        "message": "Ingestion failed or partial: status {{ $json.statusCode }}"
+      },
+      "id": "error-msg",
+      "name": "Failure",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1300, 380]
+    },
+    {
+      "parameters": {
+        "cronExpression": "0 9 * * *"
+      },
+      "id": "daily-cron",
+      "name": "Daily 09:00",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [200, 480]
+    }
+  ],
+  "connections": {
+    "Start": { "main": [[{ "node": "Read CSV File", "type": "main", "index": 0 }]] },
+    "Read CSV File": { "main": [[{ "node": "Transform & Add Metadata", "type": "main", "index": 0 }]] },
+    "Transform & Add Metadata": { "main": [[{ "node": "Trigger ETL", "type": "main", "index": 0 }]] },
+    "Trigger ETL": { "main": [[{ "node": "Check Response", "type": "main", "index": 0 }]] },
+    "Check Response": {
+      "main": [
+        [{ "node": "Success", "type": "main", "index": 0 }],
+        [{ "node": "Failure", "type": "main", "index": 0 }]
+      ]
+    },
+    "Daily 09:00": { "main": [[{ "node": "Read CSV File", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
+
+

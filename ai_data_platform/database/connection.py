@@ -70,7 +70,7 @@ class DatabaseConnection:
         
         Args:
             query: SQL query string
-            parameters: Optional query parameters
+            parameters: Optional query parameters (dict for named, tuple/list for positional)
             
         Returns:
             Query result
@@ -78,7 +78,11 @@ class DatabaseConnection:
         with self.get_connection() as conn:
             try:
                 if parameters:
-                    result = conn.execute(query, parameters)
+                    # Handle both named (dict) and positional (tuple/list) parameters
+                    if isinstance(parameters, dict):
+                        result = conn.execute(query, parameters)
+                    else:
+                        result = conn.execute(query, parameters)
                 else:
                     result = conn.execute(query)
                 logger.debug(f"Executed query: {query[:100]}...")

@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n-ai-platform
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=UTC
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=aiplatform2024
+      - N8N_ENCRYPTION_KEY=your-encryption-key-here
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/home/node/.n8n/workflows
+      - ./data:/home/node/.n8n/data
+    networks:
+      - ai-platform-network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: ai-platform-api
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - ENVIRONMENT=production
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - ai-platform-network
+    depends_on:
+      - n8n
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    container_name: ai-platform-ui
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE=http://api:8000
+    networks:
+      - ai-platform-network
+    depends_on:
+      - api
+
+  # Future: AI Platform Service
+  # ai-platform:
+  #   build: .
+  #   container_name: ai-platform-app
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - ENVIRONMENT=production
+  #     - DATABASE_URL=postgresql://user:pass@db:5432/ai_platform
+  #   volumes:
+  #     - ./data:/app/data
+  #     - ./logs:/app/logs
+  #   depends_on:
+  #     - db
+  #   networks:
+  #     - ai-platform-network
+
+  # Future: PostgreSQL Database
+  # db:
+  #   image: postgres:15
+  #   container_name: ai-platform-db
+  #   restart: unless-stopped
+  #   environment:
+  #     - POSTGRES_DB=ai_platform
+  #     - POSTGRES_USER=ai_user
+  #     - POSTGRES_PASSWORD=ai_password_2024
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - ai-platform-network
+
+volumes:
+  n8n_data:
+    driver: local
+  # postgres_data:
+  #   driver: local
+
+networks:
+  ai-platform-network:
+    driver: bridge
+

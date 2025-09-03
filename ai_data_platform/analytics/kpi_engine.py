@@ -185,14 +185,14 @@ class KPIEngine:
         WHERE 1=1
         """
         
-        params = {}
+        params = []
         if start_date:
-            query += " AND date >= $start_date"
-            params['start_date'] = start_date
+            query += " AND date >= ?"
+            params.append(start_date)
         
         if end_date:
-            query += " AND date <= $end_date"
-            params['end_date'] = end_date
+            query += " AND date <= ?"
+            params.append(end_date)
         
         query += f" GROUP BY {group_by_clause} ORDER BY {group_by_clause}"
         
@@ -329,22 +329,22 @@ class KPIEngine:
         WHERE 1=1
         """
         
-        params = {}
+        params = []
         if start_date:
-            query += " AND date >= $start_date"
-            params['start_date'] = start_date
+            query += " AND date >= ?"
+            params.append(start_date)
         
         if end_date:
-            query += " AND date <= $end_date"
-            params['end_date'] = end_date
+            query += " AND date <= ?"
+            params.append(end_date)
         
         if platform:
-            query += " AND platform = $platform"
-            params['platform'] = platform
+            query += " AND platform = ?"
+            params.append(platform)
         
         if account:
-            query += " AND account = $account"
-            params['account'] = account
+            query += " AND account = ?"
+            params.append(account)
         
         query += " ORDER BY date DESC, platform, account"
         
@@ -443,4 +443,110 @@ class KPIEngine:
             
         except Exception as e:
             logger.error(f"Error validating KPI calculations: {e}")
+            raise
+
+    def calculate_platform_metrics(self, start_date: date, end_date: date) -> List[Dict[str, Any]]:
+        """Calculate CAC and ROAS metrics broken down by platform for a date range
+        
+        Args:
+            start_date: Start date for analysis
+            end_date: End date for analysis
+            
+        Returns:
+            List of platform metrics with CAC, ROAS, spend, and conversions
+        """
+        query = """
+        SELECT 
+            platform,
+            SUM(spend) as total_spend,
+            SUM(conversions) as total_conversions,
+            SUM(conversions) * 100 as total_revenue,
+            CASE 
+                WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)
+                ELSE NULL 
+            END as cac,
+            CASE 
+                WHEN SUM(spend) > 0 THEN (SUM(conversions) * 100.0) / SUM(spend)
+                ELSE NULL 
+            END as roas,
+            COUNT(DISTINCT date) as days_with_data
+        FROM raw_ads_spend 
+        WHERE date BETWEEN ? AND ?
+        GROUP BY platform
+        ORDER BY total_spend DESC
+        """
+        
+        try:
+            result = self.db.execute_query(query, (start_date, end_date))
+            rows = result.fetchall()
+            
+            platform_metrics = []
+            for row in rows:
+                platform_metrics.append({
+                    'platform': row[0],
+                    'total_spend': float(row[1]),
+                    'total_conversions': int(row[2]),
+                    'total_revenue': float(row[3]),
+                    'cac': float(row[4]) if row[4] else None,
+                    'roas': float(row[5]) if row[5] else None,
+                    'days_with_data': int(row[6])
+                })
+            
+            logger.info(f"Calculated platform metrics for {len(platform_metrics)} platforms")
+            return platform_metrics
+            
+        except Exception as e:
+            logger.error(f"Error calculating platform metrics: {e}")
+            raise
+
+    def calculate_period_metrics(self, start_date: date, end_date: date) -> Dict[str, Any]:
+        """Calculate CAC and ROAS metrics for a specific date range
+        
+        Args:
+            start_date: Start date for analysis
+            end_date: End date for analysis
+            
+        Returns:
+            Dictionary with total spend, conversions, CAC, and ROAS
+        """
+        query = """
+        SELECT 
+            SUM(spend) as total_spend,
+            SUM(conversions) as total_conversions,
+            SUM(conversions) * 100 as total_revenue,
+            CASE 
+                WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)
+                ELSE NULL 
+            END as cac,
+            CASE 
+                WHEN SUM(spend) > 0 THEN (SUM(conversions) * 100.0) / SUM(spend)
+                ELSE NULL 
+            END as roas
+        FROM raw_ads_spend 
+        WHERE date BETWEEN ? AND ?
+        """
+        
+        try:
+            result = self.db.execute_query(query, (start_date, end_date))
+            row = result.fetchone()
+            
+            if row and row[0] is not None:
+                return {
+                    'total_spend': float(row[0]),
+                    'total_conversions': int(row[1]),
+                    'total_revenue': float(row[2]),
+                    'cac': float(row[3]) if row[3] else None,
+                    'roas': float(row[4]) if row[4] else None
+                }
+            else:
+                return {
+                    'total_spend': 0.0,
+                    'total_conversions': 0,
+                    'total_revenue': 0.0,
+                    'cac': None,
+                    'roas': None
+                }
+                
+        except Exception as e:
+            logger.error(f"Error calculating period metrics: {e}")
             raise

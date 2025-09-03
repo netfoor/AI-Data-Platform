@@ -1,0 +1,101 @@
+{
+  "name": "AI Data Platform - NLQ via OpenAI (Translation Only)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nlq-translate",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "resource": "chat",
+        "operation": "createChatCompletion",
+        "model": "gpt-4o-mini",
+        "messagesUi": {
+          "message": [
+            {
+              "role": "system",
+              "content": "You translate a user question into structured JSON for analytics. Output strictly JSON with keys: question, start_date, end_date, previous_start_date, previous_end_date. Use ISO dates when present; otherwise omit keys."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.body.text }}"
+            }
+          ]
+        },
+        "additionalFields": {
+          "temperature": 0
+        }
+      },
+      "id": "openai-chat",
+      "name": "OpenAI Chat (Translate)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse OpenAI response to JSON params for /nlq\nconst content = $json.choices?.[0]?.message?.content || '{}';\nlet params;\ntry {\n  params = JSON.parse(content);\n} catch (e) {\n  params = { question: $items(0).item.json.body?.text || '' };\n}\n// Ensure only allowed keys\nconst out = {\n  question: params.question || ($items(0).item.json.body?.text || ''),\n};\n['start_date','end_date','previous_start_date','previous_end_date'].forEach(k => {\n  if (params[k]) out[k] = params[k];\n});\nreturn { json: out };"
+      },
+      "id": "parse-json",
+      "name": "Parse Translation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "url": "http://localhost:8000/nlq",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "Content-Type", "value": "application/json" } ] },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "question", "value": "={{ $json.question }}" },
+            { "name": "start_date", "value": "={{ $json.start_date }}" },
+            { "name": "end_date", "value": "={{ $json.end_date }}" },
+            { "name": "previous_start_date", "value": "={{ $json.previous_start_date }}" },
+            { "name": "previous_end_date", "value": "={{ $json.previous_end_date }}" }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "call-nlq",
+      "name": "Call /nlq",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "message": "={{ JSON.stringify($json.body, null, 2) }}"
+      },
+      "id": "return-result",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1180, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": { "main": [[{ "node": "OpenAI Chat (Translate)", "type": "main", "index": 0 }]] },
+    "OpenAI Chat (Translate)": { "main": [[{ "node": "Parse Translation", "type": "main", "index": 0 }]] },
+    "Parse Translation": { "main": [[{ "node": "Call /nlq", "type": "main", "index": 0 }]] },
+    "Call /nlq": { "main": [[{ "node": "Return Result", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
+
+

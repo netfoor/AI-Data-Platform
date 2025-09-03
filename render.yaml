@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: ai-data-platform-api
+    env: python
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+      pip install gunicorn
+    startCommand: gunicorn ai_data_platform.api.rest_api:app --bind 0.0.0.0:$PORT --workers 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DATABASE_URL
+        value: ./data/ai_data_platform.duckdb
+      - key: LOG_LEVEL
+        value: INFO
+    healthCheckPath: /health
+
+  - type: web
+    name: ai-data-platform-ui
+    env: python
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+      pip install streamlit
+    startCommand: streamlit run ui/app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: API_BASE_URL
+        value: https://ai-data-platform-api.onrender.com
+    healthCheckPath: /
+
+  - type: web
+    name: ai-data-platform-n8n
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile.n8n
+    envVars:
+      - key: N8N_BASIC_AUTH_ACTIVE
+        value: true
+      - key: N8N_BASIC_AUTH_USER
+        value: admin
+      - key: N8N_BASIC_AUTH_PASSWORD
+        value: admin123
+      - key: N8N_HOST
+        value: 0.0.0.0
+      - key: N8N_PORT
+        value: 5678
+      - key: N8N_PROTOCOL
+        value: https
+      - key: WEBHOOK_URL
+        value: https://ai-data-platform-n8n.onrender.com
+      - key: GENERIC_TIMEZONE
+        value: UTC

@@ -38,5 +38,14 @@ def main():
         logger.error(f"Failed to initialize AI Data Platform: {e}")
         sys.exit(1)
 
+def cli_main():
+    """CLI entry point"""
+    from ai_data_platform.cli import cli
+    cli()
+
 if __name__ == "__main__":
-    main()
+    # Check if CLI arguments are provided
+    if len(sys.argv) > 1:
+        cli_main()
+    else:
+        main()
