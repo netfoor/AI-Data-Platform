@@ -2,6 +2,12 @@
 
 A comprehensive data engineering solution for automated data ingestion, KPI modeling, and analytics accessibility.
 
+
+
+![alt text](image.png)
+![alt text](image-1.png)
+
+
 ## Features
 
 - Automated data ingestion using n8n workflows
@@ -10,6 +16,12 @@ A comprehensive data engineering solution for automated data ingestion, KPI mode
 - REST API for metrics access
 - Natural language query interface
 - Time-based comparative analysis
+
+
+![alt text](image-2.png)
+![alt text](image-3.png)
+![alt text](image-4.png)
+![alt text](image-5.png)
 
 ## Quick Start
 
