@@ -171,15 +171,38 @@ class N8nAPIClient:
             return False
     
     def activate_workflow(self, workflow_id: str) -> bool:
-        """Activate a workflow"""
+        """Activate a workflow using the correct n8n API method"""
         try:
-            response = self.session.post(f"{self.base_url}/api/v1/workflows/{workflow_id}/activate", timeout=10)
+            # First get the current workflow
+            get_response = self.session.get(f"{self.base_url}/api/v1/workflows/{workflow_id}", timeout=10)
+            
+            if get_response.status_code != 200:
+                logger.error(f"❌ Failed to get workflow: {get_response.status_code}")
+                return False
+            
+            workflow_data = get_response.json()
+            
+            # Create minimal update payload
+            update_payload = {
+                "name": workflow_data.get("name"),
+                "nodes": workflow_data.get("nodes", []),
+                "connections": workflow_data.get("connections", {}),
+                "active": True,
+                "settings": workflow_data.get("settings", {})
+            }
+            
+            # Update workflow with active=True
+            response = self.session.put(
+                f"{self.base_url}/api/v1/workflows/{workflow_id}",
+                json=update_payload,
+                timeout=10
+            )
             
             if response.status_code == 200:
                 logger.info(f"✅ Activated workflow {workflow_id}")
                 return True
             else:
-                logger.error(f"❌ Failed to activate workflow: {response.status_code}")
+                logger.error(f"❌ Failed to activate workflow: {response.status_code} - {response.text}")
                 return False
                 
         except Exception as e:
@@ -262,61 +285,192 @@ class N8nAPIClient:
             return False
     
     def setup_data_ingestion_workflow(self, csv_file_path: str = "ads_spend.csv") -> Optional[str]:
-        """Set up the complete data ingestion workflow"""
+        """Create and activate webhook-based data ingestion workflow"""
         try:
-            # Check if workflow already exists
-            existing_workflow = self.get_workflow_by_name("AI Data Platform - Data Ingestion")
-            if existing_workflow:
+            logger.info(f"🆕 Creating webhook-based data ingestion workflow...")
+            
+            # Check if webhook workflow already exists and is active
+            existing_workflow = self.get_workflow_by_name("AI Data Platform - Webhook Ingestion")
+            if existing_workflow and existing_workflow.get('active'):
                 workflow_id = existing_workflow.get('id')
-                logger.info(f"📋 Workflow already exists with ID: {workflow_id}")
+                logger.info(f"✅ Found active webhook workflow: {workflow_id}")
                 return workflow_id
             
-            # Load workflow template
-            workflow_path = Path("workflows/simple-data-ingestion-workflow.json")
-            if not workflow_path.exists():
-                # Fallback to original workflow
-                workflow_path = Path("workflows/data-ingestion-workflow.json")
-                if not workflow_path.exists():
-                    logger.error(f"Workflow template not found")
-                    return None
+            # Load the webhook workflow JSON
+            import json
+            from pathlib import Path
             
+            workflow_path = Path("/app/webhook-workflow.json")
+            if not workflow_path.exists():
+                logger.error(f"❌ Webhook workflow template not found at: {workflow_path}")
+                return None
+
             with open(workflow_path, 'r', encoding='utf-8') as f:
                 workflow_data = json.load(f)
+
+            logger.info(f"📋 Loaded webhook workflow JSON: {workflow_data.get('name')}")
+
+            # Generate unique name to avoid conflicts
+            import time
+            timestamp = int(time.time())
+            unique_name = f"AI Data Platform - Webhook Ingestion {timestamp}"
+            workflow_data['name'] = unique_name
             
-            # Update CSV file path
+            logger.info(f"🏷️ Creating webhook workflow: {unique_name}")
+
+            # Create workflow
+            logger.info(f"🔧 Creating new webhook workflow...")
+            response = self.session.post(
+                f"{self.base_url}/api/v1/workflows",
+                json=workflow_data,
+                timeout=10
+            )
+            
+            if response.status_code in [200, 201]:
+                workflow = response.json()
+                workflow_id = workflow['id']
+                logger.info(f"✅ Webhook workflow created with ID: {workflow_id}")
+                
+                # Try to activate it
+                try:
+                    activate_response = self.session.post(
+                        f"{self.base_url}/api/v1/workflows/{workflow_id}/activate",
+                        timeout=10
+                    )
+                    
+                    if activate_response.status_code == 200:
+                        logger.info(f"✅ Webhook workflow activated successfully!")
+                        
+                        # Store webhook URL for later use
+                        webhook_url = f"{self.base_url}/webhook/trigger-ingestion"
+                        logger.info(f"🎣 Webhook URL: {webhook_url}")
+                        
+                        return workflow_id
+                    else:
+                        logger.warning(f"⚠️ Workflow created but activation failed: {activate_response.status_code}")
+                        logger.warning(f"Response: {activate_response.text}")
+                        return workflow_id
+                        
+                except Exception as e:
+                    logger.error(f"Error activating webhook workflow: {e}")
+                    return workflow_id
+            else:
+                logger.error(f"❌ Failed to create webhook workflow: {response.status_code}")
+                logger.error(f"Response: {response.text}")
+                return None
+
+        except Exception as e:
+            logger.error(f"❌ Error setting up data ingestion workflow: {e}")
+            return None
+
+    def trigger_webhook_ingestion(self, csv_file_path: str = "ads_spend.csv", batch_id: str = None) -> bool:
+        """Trigger data ingestion via webhook"""
+        try:
+            webhook_url = f"{self.base_url}/webhook/trigger-ingestion"
+            
+            import time
+            if not batch_id:
+                batch_id = f"webhook_batch_{int(time.time())}"
+            
+            payload = {
+                "csv_file_path": csv_file_path,
+                "batch_id": batch_id
+            }
+            
+            logger.info(f"🎣 Triggering webhook ingestion: {webhook_url}")
+            logger.info(f"📋 Payload: {payload}")
+            
+            response = requests.post(
+                webhook_url,
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"✅ Webhook ingestion triggered successfully!")
+                logger.info(f"Response: {response.text}")
+                return True
+            else:
+                logger.error(f"❌ Webhook ingestion failed: {response.status_code}")
+                logger.error(f"Response: {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error triggering webhook ingestion: {e}")
+            return False
+    
+    def create_fresh_workflow(self, csv_file_path: str = "ads_spend.csv") -> Optional[str]:
+        """Crear un workflow completamente nuevo con timestamp único"""
+        try:
+            logger.info(f"🆕 Creating fresh data ingestion workflow...")
+            
+            # Load the corrected workflow JSON
+            import json
+            from pathlib import Path
+            import time
+            
+            workflow_path = Path("/app/workflows/consolidated-data-ingestion-workflow.json")
+            if not workflow_path.exists():
+                # Fallback to relative path
+                workflow_path = Path("workflows/consolidated-data-ingestion-workflow.json")
+                if not workflow_path.exists():
+                    logger.error(f"❌ Workflow template not found at: {workflow_path}")
+                    return None
+
+            with open(workflow_path, 'r', encoding='utf-8') as f:
+                workflow_data = json.load(f)
+
+            # Generate unique name with timestamp
+            timestamp = int(time.time())
+            unique_name = f"AI Data Platform - Fresh Ingestion {timestamp}"
+            workflow_data['name'] = unique_name
+            
+            logger.info(f"🏷️ Creating workflow: {unique_name}")
+
+            # Update CSV file path in parameters if needed
             for node in workflow_data.get('nodes', []):
                 if node.get('name') == 'Read CSV File':
-                    node['parameters']['filePath'] = csv_file_path
-                elif node.get('name') == 'Trigger ETL Pipeline':
-                    # Update the CSV file path in the body parameters
-                    for param in node['parameters']['bodyParameters']['parameters']:
-                        if param['name'] == 'csv_file_path':
-                            param['value'] = csv_file_path
-            
+                    if 'parameters' in node and 'filePath' in node['parameters']:
+                        node['parameters']['filePath'] = csv_file_path
+                        logger.info(f"📝 Updated CSV file path: {csv_file_path}")
+
             # Create workflow
             workflow_id = self.create_workflow(workflow_data)
+            
             if workflow_id:
-                # Activate the workflow
-                if self.activate_workflow(workflow_id):
-                    logger.info(f"Data ingestion workflow created and activated successfully!")
-                    return workflow_id
-                else:
-                    logger.warning(f"Workflow created but failed to activate: {workflow_id}")
-                    return workflow_id
-            
-            return None
-            
+                logger.info(f"✅ Fresh workflow created with ID: {workflow_id}")
+                logger.info(f"📋 Workflow name: {unique_name}")
+                logger.info(f"🌐 Go to http://localhost:5678 to activate it manually")
+                return workflow_id
+            else:
+                logger.error(f"❌ Failed to create fresh workflow")
+                return None
+
         except Exception as e:
-            logger.error(f"Error setting up data ingestion workflow: {e}")
+            logger.error(f"❌ Error creating fresh workflow: {e}")
             return None
     
     def run_data_ingestion(self, csv_file_path: str = "ads_spend.csv") -> bool:
         """Run the data ingestion workflow"""
         try:
-            # Ensure workflow exists and is active
-            workflow_id = self.setup_data_ingestion_workflow(csv_file_path)
-            if not workflow_id:
+            # First check if we can connect to n8n
+            if not self.test_connection():
+                logger.error("❌ Cannot connect to n8n API")
                 return False
+            
+            # Try to find existing workflow first
+            existing_workflow = self.get_workflow_by_name("AI Data Platform - Data Ingestion")
+            
+            if existing_workflow:
+                workflow_id = existing_workflow.get('id')
+                logger.info(f"✅ Found existing workflow: {workflow_id}")
+            else:
+                # Create workflow if it doesn't exist
+                workflow_id = self.setup_data_ingestion_workflow(csv_file_path)
+                if not workflow_id:
+                    logger.error("❌ Failed to create workflow")
+                    return False
             
             # Execute the workflow
             execution_id = self.execute_workflow(workflow_id, {
@@ -380,3 +534,82 @@ class N8nAPIClient:
         except Exception as e:
             logger.error(f"Error getting executions: {e}")
             return []
+
+    def activate_workflow_by_id(self, workflow_id: str) -> bool:
+        """Activate a workflow using the correct API method"""
+        try:
+            # Try PUT method first (n8n 1.x preferred)
+            response = self.session.put(
+                f"{self.base_url}/api/v1/workflows/{workflow_id}/activate",
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"✅ Workflow {workflow_id} activated successfully")
+                return True
+            
+            # If PUT doesn't work, try POST method
+            response = self.session.post(
+                f"{self.base_url}/api/v1/workflows/{workflow_id}/activate",
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"✅ Workflow {workflow_id} activated successfully")
+                return True
+            
+            # Last resort: try updating active property directly
+            response = self.session.put(
+                f"{self.base_url}/api/v1/workflows/{workflow_id}",
+                json={"active": True},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                logger.info(f"✅ Workflow {workflow_id} activated successfully via update")
+                return True
+            
+            logger.error(f"❌ Failed to activate workflow {workflow_id}: {response.status_code}")
+            logger.error(f"Response: {response.text}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error activating workflow {workflow_id}: {e}")
+            return False
+
+    def create_and_activate_compatible_workflow(self) -> Optional[str]:
+        """Create and activate the compatible workflow"""
+        workflow_json_path = "/app/n8n-compatible-workflow.json"
+        
+        try:
+            with open(workflow_json_path, 'r') as f:
+                workflow_data = json.load(f)
+            
+            logger.info(f"Creating workflow: {workflow_data['name']}")
+            
+            response = self.session.post(
+                f"{self.base_url}/api/v1/workflows",
+                json=workflow_data,
+                timeout=10
+            )
+            
+            if response.status_code in [200, 201]:
+                workflow = response.json()
+                workflow_id = workflow['id']
+                logger.info(f"✅ Workflow created successfully with ID: {workflow_id}")
+                
+                # Try to activate it
+                if self.activate_workflow_by_id(workflow_id):
+                    logger.info(f"✅ Compatible workflow created and activated: {workflow_id}")
+                    return workflow_id
+                else:
+                    logger.warning(f"⚠️ Workflow created but activation failed: {workflow_id}")
+                    return workflow_id
+            else:
+                logger.error(f"❌ Failed to create workflow: {response.status_code}")
+                logger.error(f"Response: {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error creating compatible workflow: {e}")
+            return None

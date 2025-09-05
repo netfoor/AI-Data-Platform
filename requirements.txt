@@ -22,3 +22,6 @@ aiohttp>=3.8.0
 
 # Logging
 structlog>=23.0.0
+
+requests
+plotly

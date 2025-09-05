@@ -87,7 +87,7 @@ We chose a **microservices-based, containerized architecture** for several strat
 - **Real-time Computation**: Instant KPI calculations on demand
 
 ### 3. Natural Language Query Interface
-- **Plain English Questions**: Users can ask "Show me Facebook performance last month"
+- **Plain English Questions**: Users can ask "Show me Meta performance last month"
 - **Intelligent Translation**: Converts natural language to structured SQL queries
 - **Context Awareness**: Understands date ranges, platforms, and metrics
 - **Fallback Handling**: Graceful degradation when queries can't be processed

@@ -7,6 +7,14 @@ from typing import Optional
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
+def get_n8n_base_url():
+    """Get n8n base URL based on environment"""
+    # Check if running in Docker (look for .dockerenv file)
+    if os.path.exists("/.dockerenv"):
+        return "http://n8n:5678"
+    # Otherwise use localhost for local development
+    return "http://localhost:5678"
+
 class DatabaseSettings(BaseSettings):
     """Database configuration settings"""
     path: str = Field(default="data/ai_data_platform.duckdb", description="Path to DuckDB database file")
@@ -29,7 +37,7 @@ class APISettings(BaseSettings):
 
 class N8nSettings(BaseSettings):
     """n8n workflow automation settings"""
-    base_url: str = Field(default="http://localhost:5678", description="n8n local Docker instance URL")
+    base_url: str = Field(default_factory=get_n8n_base_url, description="n8n Docker service URL")
     api_key: Optional[str] = Field(default=None, description="n8n API key for authentication")
     webhook_secret: Optional[str] = Field(default="ai-platform-secret-2024", description="Webhook secret for secure communication")
     workflow_id: Optional[str] = Field(default=None, description="ID of the data ingestion workflow")

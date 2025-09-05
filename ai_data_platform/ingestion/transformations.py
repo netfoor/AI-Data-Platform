@@ -114,7 +114,10 @@ class DataTransformer:
         Returns:
             Dictionary with batch summary information
         """
-        success_rate = (success_count / record_count * 100) if record_count > 0 else 0
+        try:
+            success_rate = (float(success_count) / float(record_count) * 100) if record_count > 0 else 0
+        except (ValueError, TypeError):
+            success_rate = 0
         
         summary = {
             'batch_id': self.batch_id,

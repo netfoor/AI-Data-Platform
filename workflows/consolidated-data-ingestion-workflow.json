@@ -28,7 +28,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Add metadata to each record\\nconst records = $input.all();\\nconst batchId = `batch_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;\\nreturn records.map(r => ({ json: { ...r.json, load_date: new Date().toISOString(), source_file_name: 'ads_spend.csv', batch_id: batchId, processed_at: new Date().toISOString() } }));"
+        "jsCode": "// Add metadata to each record\nconst records = $input.all();\nconst batchId = `batch_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;\nreturn records.map(r => ({ json: { ...r.json, load_date: new Date().toISOString(), source_file_name: 'ads_spend.csv', batch_id: batchId, processed_at: new Date().toISOString() } }));"
       },
       "id": "data-transformer",
       "name": "Transform & Add Metadata",
@@ -38,44 +38,42 @@
     },
     {
       "parameters": {
-        "httpMethod": "POST",
-        "url": "http://localhost:8000/ingest",
+        "method": "POST",
+        "url": "http://api:8000/ingest",
         "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "Content-Type", "value": "application/json" }
-          ]
-        },
+        "headerParameters": [
+          { "name": "Content-Type", "value": "application/json" }
+        ],
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            { "name": "csv_file_path", "value": "ads_spend.csv" },
-            { "name": "batch_id", "value": "={{ $('Transform & Add Metadata').first().json.batch_id }}" },
-            { "name": "record_count", "value": "={{ $('Transform & Add Metadata').all().length }}" }
-          ]
-        },
+        "contentType": "json",
+        "jsonData": "{\n  \"csv_file_path\": \"ads_spend.csv\",\n  \"batch_id\": \"{{ $('Transform & Add Metadata').first().json.batch_id }}\",\n  \"record_count\": {{ $('Transform & Add Metadata').all().length }}\n}",
         "options": { "timeout": 30000 }
       },
       "id": "trigger-etl",
       "name": "Trigger ETL",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.1,
+      "typeVersion": 3,
       "position": [860, 300]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
-          "conditions": [
-            { "id": "ok", "leftValue": "={{ $json.statusCode }}", "rightValue": 200, "operator": { "type": "number", "operation": "gte" } }
-          ],
-          "combinator": "and"
+          "boolean": [
+            {
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 200,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ]
         }
       },
       "id": "if-success",
       "name": "Check Response",
       "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
+      "typeVersion": 1,
       "position": [1080, 300]
     },
     {
@@ -100,11 +98,18 @@
     },
     {
       "parameters": {
-        "cronExpression": "0 9 * * *"
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "cronExpression": "0 9 * * *"
+            }
+          ]
+        }
       },
-      "id": "daily-cron",
+      "id": "daily-schedule",
       "name": "Daily 09:00",
-      "type": "n8n-nodes-base.cron",
+      "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
       "position": [200, 480]
     }
@@ -124,5 +129,3 @@
   },
   "settings": { "executionOrder": "v1" }
 }
-
-

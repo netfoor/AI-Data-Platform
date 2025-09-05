@@ -86,9 +86,50 @@ class DatabaseConnection:
                 else:
                     result = conn.execute(query)
                 logger.debug(f"Executed query: {query[:100]}...")
-                return result
+                
+                # Convert result to list of dictionaries for JSON serialization
+                try:
+                    # Get column names
+                    columns = [desc[0] for desc in result.description] if result.description else []
+                    # Fetch all rows
+                    rows = result.fetchall()
+                    # Convert to list of dictionaries
+                    data = [dict(zip(columns, row)) for row in rows]
+                    return data
+                except Exception as e:
+                    # If result doesn't have data (like DDL statements), return empty list
+                    logger.debug(f"Query returned no rows or is DDL: {e}")
+                    return []
+                    
             except Exception as e:
                 logger.error(f"Query execution failed: {e}")
+                logger.error(f"Query: {query}")
+                raise
+
+    def execute_query_raw(self, query: str, parameters: Optional[dict] = None):
+        """Execute a SQL query and return raw cursor (for backward compatibility)
+        
+        Args:
+            query: SQL query string
+            parameters: Optional query parameters (dict for named, tuple/list for positional)
+            
+        Returns:
+            Raw DuckDB cursor result
+        """
+        with self.get_connection() as conn:
+            try:
+                if parameters:
+                    # Handle both named (dict) and positional (tuple/list) parameters
+                    if isinstance(parameters, dict):
+                        result = conn.execute(query, parameters)
+                    else:
+                        result = conn.execute(query, parameters)
+                else:
+                    result = conn.execute(query)
+                logger.debug(f"Executed raw query: {query[:100]}...")
+                return result
+            except Exception as e:
+                logger.error(f"Raw query execution failed: {e}")
                 logger.error(f"Query: {query}")
                 raise
     

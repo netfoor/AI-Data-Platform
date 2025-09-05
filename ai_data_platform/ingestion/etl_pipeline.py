@@ -42,17 +42,27 @@ class ETLPipelineResult:
     @property
     def validation_success_rate(self) -> float:
         """Calculate validation success rate as percentage"""
-        if self.total_records_read > 0:
-            return (self.valid_records / self.total_records_read) * 100
-        return 0.0
+        try:
+            total_records = float(self.total_records_read) if self.total_records_read else 0
+            valid_records = float(self.valid_records) if self.valid_records else 0
+            if total_records > 0:
+                return (valid_records / total_records) * 100
+            return 0.0
+        except (ValueError, TypeError):
+            return 0.0
     
     @property
     def insertion_success_rate(self) -> float:
         """Calculate insertion success rate as percentage"""
-        total_processed = self.records_inserted + self.records_failed
-        if total_processed > 0:
-            return (self.records_inserted / total_processed) * 100
-        return 0.0
+        try:
+            records_inserted = float(self.records_inserted) if self.records_inserted else 0
+            records_failed = float(self.records_failed) if self.records_failed else 0
+            total_processed = records_inserted + records_failed
+            if total_processed > 0:
+                return (records_inserted / total_processed) * 100
+            return 0.0
+        except (ValueError, TypeError):
+            return 0.0
     
     def get_summary(self) -> Dict[str, Any]:
         """Get a comprehensive summary of the pipeline execution"""

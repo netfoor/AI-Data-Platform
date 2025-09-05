@@ -197,7 +197,7 @@ class KPIEngine:
         query += f" GROUP BY {group_by_clause} ORDER BY {group_by_clause}"
         
         try:
-            result = self.db.execute_query(query, params)
+            result = self.db.execute_query_raw(query, params)
             rows = result.fetchall()
             
             kpi_metrics = []
@@ -349,7 +349,7 @@ class KPIEngine:
         query += " ORDER BY date DESC, platform, account"
         
         try:
-            result = self.db.execute_query(query, params)
+            result = self.db.execute_query_raw(query, params)
             rows = result.fetchall()
             
             # Convert to list of dictionaries
@@ -414,7 +414,7 @@ class KPIEngine:
         """
         
         try:
-            result = self.db.execute_query(validation_query)
+            result = self.db.execute_query_raw(validation_query)
             rows = result.fetchall()
             
             validation_results = {
@@ -477,7 +477,7 @@ class KPIEngine:
         """
         
         try:
-            result = self.db.execute_query(query, (start_date, end_date))
+            result = self.db.execute_query_raw(query, (start_date, end_date))
             rows = result.fetchall()
             
             platform_metrics = []
@@ -527,7 +527,7 @@ class KPIEngine:
         """
         
         try:
-            result = self.db.execute_query(query, (start_date, end_date))
+            result = self.db.execute_query_raw(query, (start_date, end_date))
             row = result.fetchone()
             
             if row and row[0] is not None:

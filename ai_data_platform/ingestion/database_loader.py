@@ -137,7 +137,10 @@ class DatabaseLoader:
                 error_messages.extend(individual_errors)
         
         total_processed = successful_inserts + failed_inserts
-        success_rate = (successful_inserts / total_processed * 100) if total_processed > 0 else 0
+        try:
+            success_rate = (float(successful_inserts) / float(total_processed) * 100) if total_processed > 0 else 0
+        except (ValueError, TypeError):
+            success_rate = 0
         
         logger.info(
             f"Insertion completed: {successful_inserts} successful, {failed_inserts} failed "

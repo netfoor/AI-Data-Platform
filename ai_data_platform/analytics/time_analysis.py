@@ -106,7 +106,7 @@ class TimeAnalysisEngine:
             WHERE date BETWEEN ? AND ?
             """
             
-            result = self.db.execute_query(query, (time_range.start_date, time_range.end_date))
+            result = self.db.execute_query_raw(query, (time_range.start_date, time_range.end_date))
             row = result.fetchone()
             
             if row and row[0] is not None:
@@ -276,7 +276,7 @@ class TimeAnalysisEngine:
             if start_date < min_date:
                 start_date = min_date
             
-            result = self.db.execute_query(query, (start_date, days))
+            result = self.db.execute_query_raw(query, (start_date, days))
             results = result.fetchall()
             
             daily_metrics = []

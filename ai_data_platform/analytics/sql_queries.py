@@ -302,7 +302,7 @@ class SQLQueryInterface:
             param_list = self._convert_parameters_to_positional(query, parameters)
             
             # Execute the query
-            result = self.db.execute_query(query, param_list)
+            result = self.db.execute_query_raw(query, param_list)
             rows = result.fetchall()
             
             # Convert to list of dictionaries

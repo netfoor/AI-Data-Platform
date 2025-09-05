@@ -201,3 +201,6 @@ logs/*.log
 .env.development.local
 .env.test.local
 .env.production.local
+
+# n8n automation prompts and workflows
+N8N_AUTOMATION_PROMPT.md

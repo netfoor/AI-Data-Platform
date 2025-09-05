@@ -1,11 +1,9 @@
-
 # --- IMPORTS & APP DEFINITION MUST BE AT THE TOP ---
 from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, Dict, Any, List
 from datetime import datetime, date
-from decimal import Decimal
 import logging
 from ..database.connection import db
 from ..analytics.kpi_engine import KPIEngine
@@ -17,16 +15,6 @@ from ..config import settings
 from ..ingestion.etl_pipeline import run_etl_pipeline
 
 logger = logging.getLogger(__name__)
-
-def convert_decimals_for_json(obj):
-    """Convert Decimal objects to float for JSON serialization"""
-    if isinstance(obj, Decimal):
-        return float(obj)
-    elif isinstance(obj, dict):
-        return {k: convert_decimals_for_json(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [convert_decimals_for_json(item) for item in obj]
-    return obj
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -50,241 +38,14 @@ app.add_middleware(
 kpi_engine = None
 time_analysis_engine = None
 
-# --- END IMPORTS & APP DEFINITION ---
-
-# Test route to verify routes are being registered
-@app.get("/test")
-async def test_route():
-    return {"message": "Test route working"}
-
 # Utilidad para obtener cliente n8n
 def get_n8n_client(api_key: str = None):
-    key = api_key or settings.n8n.api_key or os.getenv("N8N_API_KEY")
+    key = api_key or settings.n8n.api_key or "aiplatform2024"
     return N8nAPIClient(
         base_url=settings.n8n.base_url,
         api_key=key,
         webhook_secret=settings.n8n.webhook_secret
     )
-
-# 5. ETL directo (sin n8n)
-@app.post("/etl-direct")
-async def etl_direct(payload: Dict[str, Any] = Body(...)):
-    """
-    Run ETL pipeline directly (without n8n). Body: {"csv_file_path": "..."}
-    """
-    from ..ingestion.etl_pipeline import ETLPipeline
-    csv_file_path = payload.get("csv_file_path") or str(settings.data.input_directory) + "/ads_spend.csv"
-    try:
-        pipeline = ETLPipeline(csv_file_path)
-        result = pipeline.run()
-        if result.success:
-            summary = result.get_summary()
-            return {"success": True, "summary": summary}
-        else:
-            return {"success": False, "error": result.error_message}
-    except Exception as e:
-        logger.error(f"Error running ETL direct: {e}")
-        return {"success": False, "error": str(e)}
-
-# 1. Setup workflow
-@app.post("/n8n/setup")
-async def n8n_setup(payload: Dict[str, Any] = Body(...)):
-    """
-    Set up n8n data ingestion workflow. Body: {"api_key": "...", "csv_file_path": "..."}
-    """
-    api_key = payload.get("api_key")
-    csv_file_path = payload.get("csv_file_path", "ads_spend.csv")
-    client = get_n8n_client(api_key)
-    workflow_id = client.setup_data_ingestion_workflow(csv_file_path)
-    if workflow_id:
-        return {"success": True, "workflow_id": workflow_id}
-    return {"success": False, "error": "Failed to set up workflow"}
-
-# 2. Test conexión n8n
-@app.post("/n8n/test")
-async def n8n_test(payload: Dict[str, Any] = Body(...)):
-    """
-    Test connection to n8n instance. Body: {"api_key": "..."}
-    """
-    api_key = payload.get("api_key")
-    client = get_n8n_client(api_key)
-    ok = client.test_connection()
-    return {"success": ok}
-
-# 3. Status workflow
-@app.post("/n8n/status")
-async def n8n_status(payload: Dict[str, Any] = Body(...)):
-    """
-    Get current workflow status. Body: {"api_key": "...", "workflow_name": "..."}
-    """
-    api_key = payload.get("api_key")
-    workflow_name = payload.get("workflow_name", "AI Data Platform - Data Ingestion")
-    client = get_n8n_client(api_key)
-    workflow = client.get_workflow_by_name(workflow_name)
-    if not workflow:
-        return {"success": False, "error": "Workflow not found"}
-    workflow_id = workflow.get('id')
-    status_info = client.get_workflow_status(workflow_id)
-    executions = client.monitor_workflow_executions(workflow_id, limit=5)
-    return {"success": True, "workflow": status_info, "executions": executions}
-
-# 4. Ingest (trigger workflow)
-@app.post("/n8n/ingest")
-async def n8n_ingest(payload: Dict[str, Any] = Body(...)):
-    """
-    Trigger data ingestion workflow. Body: {"api_key": "...", "csv_file_path": "..."}
-    """
-    api_key = payload.get("api_key")
-    csv_file_path = payload.get("csv_file_path", "ads_spend.csv")
-    client = get_n8n_client(api_key)
-    success = client.run_data_ingestion(csv_file_path)
-    return {"success": success}
-
-# 5. Webhook Ingest (trigger via webhook)
-@app.post("/n8n/webhook-ingest")
-async def n8n_webhook_ingest(payload: Dict[str, Any] = Body(...)):
-    """
-    Trigger data ingestion via webhook. Body: {"csv_file_path": "...", "batch_id": "..."}
-    """
-    csv_file_path = payload.get("csv_file_path", "ads_spend.csv")
-    batch_id = payload.get("batch_id")
-    
-    try:
-        # Use default API key for webhook ingestion
-        client = get_n8n_client()
-        success = client.trigger_webhook_ingestion(csv_file_path, batch_id)
-        
-        if success:
-            return {
-                "success": True,
-                "message": "Webhook ingestion triggered successfully",
-                "csv_file_path": csv_file_path,
-                "batch_id": batch_id,
-                "webhook_url": f"{client.base_url}/webhook/trigger-ingestion"
-            }
-        else:
-            return {
-                "success": False,
-                "message": "Failed to trigger webhook ingestion"
-            }
-    except Exception as e:
-        logger.error(f"Error in webhook ingestion endpoint: {e}")
-        return {
-            "success": False,
-            "message": f"Error: {str(e)}"
-        }
-
-# 6. Platform info
-@app.get("/platform-info")
-async def platform_info():
-    """
-    Get platform configuration and status information.
-    """
-    try:
-        info = {
-            "app_name": settings.app_name,
-            "version": settings.version,
-            "environment": settings.environment,
-            "database": {
-                "path": settings.database.path,
-                "timeout": settings.database.connection_timeout
-            },
-            "n8n": {
-                "base_url": settings.n8n.base_url,
-                "workflow_id": settings.n8n.workflow_id,
-                "automation_enabled": settings.n8n.enable_automation
-            },
-            "data": {
-                "input_directory": settings.data.input_directory,
-                "output_directory": settings.data.output_directory
-            },
-            "features": {
-                "enable_api": settings.enable_api,
-                "enable_natural_language": settings.enable_natural_language,
-                "enable_metrics_caching": settings.enable_metrics_caching
-            }
-        }
-        return info
-    except Exception as e:
-        logger.error(f"Error getting platform info: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get platform info")
-
-@app.post("/sql-query")
-async def execute_sql_query(
-    payload: Dict[str, Any] = Body(..., example={
-        "query_name": "daily_metrics",
-        "parameters": {"start_date": "2025-06-01", "end_date": "2025-06-30"},
-        "format": "json"
-    })
-):
-    """
-    Execute a predefined SQL query by name with parameters.
-
-    Body JSON parameters:
-    - query_name: Name of the predefined query (see /sql-query-help)
-    - parameters: Dict of parameters (e.g. start_date, end_date)
-    - format: Output format (table, json, summary). Default: json
-    """
-    try:
-        query_name = payload.get("query_name")
-        parameters = payload.get("parameters", {})
-        format_type = payload.get("format", "json")
-        if not query_name:
-            raise HTTPException(status_code=400, detail="query_name is required")
-        result = sql_interface.execute_predefined_query(query_name, parameters)
-        formatted = sql_interface.format_query_result(result, format_type)
-        return {"success": result.success, "row_count": result.row_count, "data": result.data if format_type=="json" else formatted, "format": format_type, "error": result.error_message}
-    except Exception as e:
-        logger.error(f"Error executing SQL query: {e}")
-        raise HTTPException(status_code=500, detail="Failed to execute SQL query")
-
-@app.get("/sql-query-help")
-async def sql_query_help(query_name: Optional[str] = None):
-    """
-    Get help and list of available predefined SQL queries.
-    Query param: query_name (optional)
-    """
-    try:
-        help_text = sql_interface.get_query_help(query_name)
-        return {"help": help_text}
-    except Exception as e:
-        logger.error(f"Error getting SQL query help: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get SQL query help")
-
-@app.post("/execute-sql")
-async def execute_free_sql(
-    payload: Dict[str, Any] = Body(..., example={
-        "query": "SELECT COUNT(*) FROM ads_spend",
-        "format": "json"
-    })
-):
-    """
-    Execute a free-form SQL query.
-    
-    Body JSON parameters:
-    - query: The SQL query to execute
-    - format: Output format (table, json). Default: json
-    """
-    try:
-        query = payload.get("query")
-        output_format = payload.get("format", "json")
-        
-        if not query:
-            raise HTTPException(status_code=400, detail="Query is required")
-        
-        logger.info(f"Executing free SQL query: {query[:100]}...")
-        
-        # Execute the query
-        result = db.execute_query(query)
-        
-        if output_format == "table":
-            return {"status": "success", "data": result, "format": "table"}
-        else:
-            return {"status": "success", "data": result, "format": "json"}
-            
-    except Exception as e:
-        logger.error(f"Error executing free SQL query: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to execute SQL query: {str(e)}")
 
 @app.on_event("startup")
 async def startup_event():
@@ -313,11 +74,6 @@ async def shutdown_event():
     except Exception as e:
         logger.error(f"API shutdown error: {e}")
 
-# Test route after startup
-@app.get("/test2")
-async def test_route2():
-    return {"message": "Test route 2 working"}
-
 @app.get("/")
 async def root():
     """Root endpoint with API information"""
@@ -331,6 +87,9 @@ async def root():
             "daily-trends": "/daily-trends",
             "ingest": "/ingest",
             "nlq": "/nlq",
+            "platform-info": "/platform-info",
+            "n8n": "/n8n/*",
+            "sql-query": "/sql-query",
             "docs": "/docs"
         }
     }
@@ -516,11 +275,8 @@ async def natural_language_query(payload: Dict[str, Any]):
     try:
         question = payload.get("question", "")
         result = execute_nlq(question, payload)
-        # Convert to JSON with custom encoder for Decimals
-        import json
-        content = json.loads(json.dumps(result, default=str))
-        status_code = 200 if content.get("success") else 400
-        return JSONResponse(status_code=status_code, content=content)
+        status_code = 200 if result.get("success") else 400
+        return JSONResponse(status_code=status_code, content=result)
     except Exception as e:
         logger.error(f"Error during NLQ execution: {e}")
         raise HTTPException(status_code=500, detail="Failed to execute NLQ")
@@ -557,6 +313,155 @@ async def ingest_data(payload: Dict[str, Any]):
     except Exception as e:
         logger.error(f"Error during ingestion: {e}")
         raise HTTPException(status_code=500, detail="Failed to run ingestion")
+
+# Platform info endpoint
+@app.get("/platform-info")
+async def platform_info():
+    """
+    Get platform configuration and status information.
+    """
+    try:
+        info = {
+            "app_name": settings.app_name,
+            "version": settings.version,
+            "environment": settings.environment,
+            "database": {
+                "path": settings.database.path,
+                "timeout": settings.database.connection_timeout
+            },
+            "n8n": {
+                "base_url": settings.n8n.base_url,
+                "workflow_id": settings.n8n.workflow_id,
+                "automation_enabled": settings.n8n.enable_automation
+            },
+            "data": {
+                "input_directory": settings.data.input_directory,
+                "output_directory": settings.data.output_directory
+            },
+            "features": {
+                "enable_api": settings.enable_api,
+                "enable_natural_language": settings.enable_natural_language,
+                "enable_metrics_caching": settings.enable_metrics_caching
+            }
+        }
+        return info
+    except Exception as e:
+        logger.error(f"Error getting platform info: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get platform info")
+
+# SQL Query endpoints
+@app.post("/sql-query")
+async def execute_sql_query(
+    payload: Dict[str, Any] = Body(..., example={
+        "query_name": "daily_metrics",
+        "parameters": {"start_date": "2025-06-01", "end_date": "2025-06-30"},
+        "format": "json"
+    })
+):
+    """
+    Execute a predefined SQL query by name with parameters.
+
+    Body JSON parameters:
+    - query_name: Name of the predefined query (see /sql-query-help)
+    - parameters: Dict of parameters (e.g. start_date, end_date)
+    - format: Output format (table, json, summary). Default: json
+    """
+    try:
+        query_name = payload.get("query_name")
+        parameters = payload.get("parameters", {})
+        format_type = payload.get("format", "json")
+        if not query_name:
+            raise HTTPException(status_code=400, detail="query_name is required")
+        result = sql_interface.execute_predefined_query(query_name, parameters)
+        formatted = sql_interface.format_query_result(result, format_type)
+        return {"success": result.success, "row_count": result.row_count, "data": result.data if format_type=="json" else formatted, "format": format_type, "error": result.error_message}
+    except Exception as e:
+        logger.error(f"Error executing SQL query: {e}")
+        raise HTTPException(status_code=500, detail="Failed to execute SQL query")
+
+@app.get("/sql-query-help")
+async def sql_query_help(query_name: Optional[str] = None):
+    """
+    Get help and list of available predefined SQL queries.
+    Query param: query_name (optional)
+    """
+    try:
+        help_text = sql_interface.get_query_help(query_name)
+        return {"help": help_text}
+    except Exception as e:
+        logger.error(f"Error getting SQL query help: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get SQL query help")
+
+# N8N endpoints
+@app.post("/n8n/setup")
+async def n8n_setup(payload: Dict[str, Any] = Body(...)):
+    """
+    Set up n8n data ingestion workflow. Body: {"api_key": "...", "csv_file_path": "..."}
+    """
+    api_key = payload.get("api_key")
+    csv_file_path = payload.get("csv_file_path", "ads_spend.csv")
+    client = get_n8n_client(api_key)
+    workflow_id = client.setup_data_ingestion_workflow(csv_file_path)
+    if workflow_id:
+        return {"success": True, "workflow_id": workflow_id}
+    return {"success": False, "error": "Failed to set up workflow"}
+
+@app.post("/n8n/test")
+async def n8n_test(payload: Dict[str, Any] = Body(...)):
+    """
+    Test connection to n8n instance. Body: {"api_key": "..."}
+    """
+    api_key = payload.get("api_key")
+    client = get_n8n_client(api_key)
+    ok = client.test_connection()
+    return {"success": ok}
+
+@app.post("/n8n/status")
+async def n8n_status(payload: Dict[str, Any] = Body(...)):
+    """
+    Get current workflow status. Body: {"api_key": "...", "workflow_name": "..."}
+    """
+    api_key = payload.get("api_key")
+    workflow_name = payload.get("workflow_name", "AI Data Platform - Data Ingestion")
+    client = get_n8n_client(api_key)
+    workflow = client.get_workflow_by_name(workflow_name)
+    if not workflow:
+        return {"success": False, "error": "Workflow not found"}
+    workflow_id = workflow.get('id')
+    status_info = client.get_workflow_status(workflow_id)
+    executions = client.monitor_workflow_executions(workflow_id, limit=5)
+    return {"success": True, "workflow": status_info, "executions": executions}
+
+@app.post("/n8n/ingest")
+async def n8n_ingest(payload: Dict[str, Any] = Body(...)):
+    """
+    Trigger data ingestion workflow. Body: {"api_key": "...", "csv_file_path": "..."}
+    """
+    api_key = payload.get("api_key")
+    csv_file_path = payload.get("csv_file_path", "ads_spend.csv")
+    client = get_n8n_client(api_key)
+    success = client.run_data_ingestion(csv_file_path)
+    return {"success": success}
+
+# ETL direct endpoint
+@app.post("/etl-direct")
+async def etl_direct(payload: Dict[str, Any] = Body(...)):
+    """
+    Run ETL pipeline directly (without n8n). Body: {"csv_file_path": "..."}
+    """
+    from ..ingestion.etl_pipeline import ETLPipeline
+    csv_file_path = payload.get("csv_file_path") or str(settings.data.input_directory) + "/ads_spend.csv"
+    try:
+        pipeline = ETLPipeline(csv_file_path)
+        result = pipeline.run()
+        if result.success:
+            summary = result.get_summary()
+            return {"success": True, "summary": summary}
+        else:
+            return {"success": False, "error": result.error_message}
+    except Exception as e:
+        logger.error(f"Error running ETL direct: {e}")
+        return {"success": False, "error": str(e)}
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):

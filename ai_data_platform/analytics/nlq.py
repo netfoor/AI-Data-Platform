@@ -3,12 +3,25 @@ Natural Language Query (NLQ) module to map questions to SQL queries.
 Simple rule-based implementation that leverages SQLQueryInterface.
 """
 import logging
+import json
+from decimal import Decimal
 from datetime import date
 from typing import Dict, Any, Optional
 
 from .sql_queries import sql_interface, QueryResult
 
 logger = logging.getLogger(__name__)
+
+
+def convert_decimals(obj):
+    """Convert Decimal objects to float for JSON serialization"""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_decimals(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_decimals(item) for item in obj]
+    return obj
 
 
 def _parse_dates(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -70,14 +83,18 @@ def execute_nlq(question: str, payload: Optional[Dict[str, Any]] = None) -> Dict
 
     formatted_summary = sql_interface.format_query_result(result, format_type="summary")
 
+    # Convert any Decimal objects to float for JSON serialization
+    data = convert_decimals(result.data)
+    summary = convert_decimals(formatted_summary)
+
     return {
         "query_name": query_name,
         "parameters": parameters,
         "success": result.success,
-        "data": result.data,
+        "data": data,
         "row_count": result.row_count,
         "execution_time": result.execution_time,
-        "summary": formatted_summary,
+        "summary": summary,
         "error": result.error_message,
     }
 
