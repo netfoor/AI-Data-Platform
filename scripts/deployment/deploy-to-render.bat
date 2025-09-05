@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 
-echo 🚀 AI Data Platform - Render Deployment
+echo 🚀  Data PlatformAI - Render Deployment
 echo ========================================
 
 REM Check if git is available

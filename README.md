@@ -21,7 +21,7 @@ git clone <repository-url>
 cd ai-data-platform
 
 # Set up virtual environment and install dependencies
-python setup_env.py
+python scripts/development/setup_env.py
 
 # Activate virtual environment
 # Windows:
@@ -52,6 +52,32 @@ python -m ai_data_platform
 
 ## Project Structure
 
+```
+ai-data-platform/
+├── ai_data_platform/          # Main application package
+│   ├── analytics/              # KPI and analytics modules
+│   ├── api/                    # REST API and server
+│   ├── database/               # Database connection and schema
+│   ├── ingestion/              # Data ingestion pipelines
+│   ├── models/                 # Data models
+│   ├── utils/                  # Utility functions
+│   └── workflows/              # Workflow management
+├── config/                     # Configuration files
+│   ├── docker-compose.yml      # Docker orchestration
+│   ├── requirements.txt        # Python dependencies
+│   └── pytest.ini             # Testing configuration
+├── data/                       # Data storage
+├── docs/                       # Documentation
+├── examples/                   # API and workflow examples
+├── logs/                       # Application logs
+├── scripts/                    # Utility scripts
+│   ├── deployment/             # Deployment scripts
+│   ├── development/            # Development utilities
+│   ├── n8n/                    # n8n workflow management
+│   └── testing/                # Test scripts
+├── tests/                      # Test suites
+├── ui/                         # Streamlit UI
+└── workflows/                  # n8n workflow definitions
 ```
 ai_data_platform/
 ├── ai_data_platform/          # Main application package

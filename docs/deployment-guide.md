@@ -17,7 +17,10 @@ This guide will walk you through deploying your AI Data Platform to Render, maki
 Ensure your repository contains these files:
 ```
 ├── render.yaml              # Render blueprint
-├── requirements.txt          # Python dependencies
+├── config/
+│   ├── requirements.txt          # Python dependencies
+│   ├── docker-compose.yml        # Service orchestration
+│   └── pytest.ini               # Test configuration
 ├── Dockerfile.api           # API service Dockerfile
 ├── Dockerfile.ui            # UI service Dockerfile
 ├── Dockerfile.n8n           # n8n service Dockerfile
@@ -28,7 +31,7 @@ Ensure your repository contains these files:
 
 ### 2. **Update Requirements**
 
-Make sure `requirements.txt` includes:
+Make sure `config/requirements.txt` includes:
 ```txt
 fastapi
 uvicorn
@@ -150,7 +153,7 @@ Replace in your workflow files:
 #### 1. **Build Failures**
 ```bash
 # Check build logs in Render dashboard
-# Verify requirements.txt is complete
+# Verify config/requirements.txt is complete
 # Ensure Python version compatibility
 ```
 

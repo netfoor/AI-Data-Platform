@@ -86,7 +86,7 @@
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
 - [ ] 9. Build natural language query interface
-  - Create query pattern recognition system using regex or simple NLP
+  - Create query pattern recognition system using openIA api as n8n node 
   - Implement mapping functions from natural language to SQL queries
   - Build response formatting that converts SQL results to human-readable text
   - Create template system for common business questions about CAC and ROAS

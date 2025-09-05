@@ -1,0 +1,164 @@
+{
+  "name": "AI Data Platform - Compatible Data Ingestion",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-trigger",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "filePath": "ads_spend.csv",
+        "options": {
+          "delimiter": ",",
+          "headerRow": true
+        }
+      },
+      "id": "csv-reader",
+      "name": "Read CSV File",
+      "type": "n8n-nodes-base.csv",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Add metadata to each record\nconst records = $input.all();\nconst batchId = `batch_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;\nreturn records.map(r => ({ json: { ...r.json, load_date: new Date().toISOString(), source_file_name: 'ads_spend.csv', batch_id: batchId, processed_at: new Date().toISOString() } }));"
+      },
+      "id": "data-transformer",
+      "name": "Transform & Add Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/ingest",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonData": "{\n  \"csv_file_path\": \"ads_spend.csv\",\n  \"batch_id\": \"{{ $('Transform & Add Metadata').first().json.batch_id }}\",\n  \"record_count\": {{ $('Transform & Add Metadata').all().length }}\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "trigger-etl",
+      "name": "Trigger ETL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.statusCode }}",
+              "operation": "largerEqual",
+              "value2": 200
+            }
+          ]
+        }
+      },
+      "id": "if-success", 
+      "name": "Check Response",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1080, 300]
+    },
+    {
+      "parameters": {},
+      "id": "success-msg",
+      "name": "Success",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1300, 220]
+    },
+    {
+      "parameters": {},
+      "id": "error-msg",
+      "name": "Failure", 
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1300, 380]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Read CSV File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read CSV File": {
+      "main": [
+        [
+          {
+            "node": "Transform & Add Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform & Add Metadata": {
+      "main": [
+        [
+          {
+            "node": "Trigger ETL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger ETL": {
+      "main": [
+        [
+          {
+            "node": "Check Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Response": {
+      "main": [
+        [
+          {
+            "node": "Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
