@@ -79,6 +79,8 @@ ai-data-platform/
 ├── ui/                         # Streamlit UI
 └── workflows/                  # n8n workflow definitions
 ```
+
+```
 ai_data_platform/
 ├── ai_data_platform/          # Main application package
 │   ├── api/                   # REST API endpoints
